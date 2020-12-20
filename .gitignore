@@ -1,0 +1,10 @@
+# Virtual environments
+.empty
+.venv
+
+# Poetry files
+poetry.lock
+
+# Cache files
+.pytest_cache
+**/__pycache__
