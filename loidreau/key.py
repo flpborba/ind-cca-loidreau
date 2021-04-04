@@ -1,3 +1,16 @@
+"""This module provides facilities to generate, import and export private and
+public keys used in the cryptosystem.
+
+Classes
+-------
+Key
+    Common base for private and public keys.
+SecretKey
+    A private key.
+Dec
+    A public key.
+"""
+
 from abc import ABC
 
 import sage.all  # noqa: F401 (required by sage)
@@ -18,37 +31,121 @@ from loidreau.matrix import (
 
 
 class Key(ABC):
+    """Common base for public and secret keys."""
+
     def m(self):
+        """Return the underlying code extension field.
+
+        Returns
+        -------
+        int
+        """
         NotImplemented
 
     def n(self):
+        """Return the underlying code length.
+
+        Returns
+        -------
+        int
+        """
         NotImplemented
 
     def k(self):
+        """Return the underlying code dimension.
+
+        Returns
+        -------
+        int
+        """
         NotImplemented
 
     def delta(self):
+        """Return the subspace dimension used for key generation.
+
+        Returns
+        -------
+        int
+        """
         NotImplemented
 
 
 class SecretKey(Key):
+    """Secret key of the encryption scheme."""
+
     def __init__(self, c, s, p, delta):
+        """Create a new secret key.
+
+        Parameters
+        ----------
+        c : GabidulinCode
+            An [n, k] Gabidulin code over GF(2 ** m).
+        s : Matrix
+            A non-singular matrix of order k over GF(2 ** m).
+        p : Matrix
+            A non-singular matrix of order n with entries in a in vector
+            subspace of GF(2 ** m).
+        dim: int
+            The dimension of the vector subspace the elements of `p` belong.
+        """
         self._c = c
         self._s = s
         self._p = p
         self._d = delta
 
     def public_key(self):
+        """Derive the corresponding public key.
+
+        Returns
+        -------
+        PublicKey
+        """
         g = self._s.inverse() * self._c.generator_matrix() * self._p.inverse()
         return PublicKey(g, self._d)
 
     def export_pem(self):
+        """Export this key in PEM format.
+
+        This method first encoded this key in DER format using `export_der`
+        and then encodes the resulting bytes in PEM format.
+
+        Returns
+        -------
+        str
+            The PEM-encoded key.
+
+        See Also
+        --------
+        export_der
+        """
         der_encoded = self.export_der()
         marker = "PRIVATE KEY"
 
         return PEM.encode(der_encoded, marker)
 
     def export_der(self):
+        """Export this key in DER format.
+
+        The ASN.1 structure of a secret key is the following:
+
+            PrivateKey ::= SEQUENCE {
+                generator       OCTET STRING
+                rowScrambler    OCTET STRING
+                columnScrambler OCTET STRING
+                parameters      Parameters
+            }
+
+            Parameters := SEQUENCE {
+                extDegree   INTEGER
+                codeLength  INTEGER
+                codeDim     INTEGER
+                subspaceDim INTEGER
+            }
+
+        Returns
+        -------
+        bytes
+        """
         parameters = [
             self._c.base_field().degree(),
             self._c.length(),
@@ -66,12 +163,30 @@ class SecretKey(Key):
         return DerSequence(sequence).encode()
 
     def c(self):
+        """Return the secret code.
+
+        Returns
+        -------
+        GabidulinCode
+        """
         return self._c
 
     def s(self):
+        """Return the row scrambler matrix.
+
+        Returns
+        -------
+        Matrix
+        """
         return self._s
 
     def p(self):
+        """Return the column scrambler or permutation matrix.
+
+        Returns
+        -------
+        Matrix
+        """
         return self._p
 
     def m(self):
@@ -88,17 +203,59 @@ class SecretKey(Key):
 
 
 class PublicKey(Key):
+    """Public key of the encryption scheme."""
+
     def __init__(self, g, delta):
+        """Create a PublicKey.
+
+        Parameters
+        ----------
+        g : Matrix
+            The public code generator matrix.
+        """
         self._g = g
         self._d = delta
 
     def export_pem(self):
+        """Export this key in PEM format.
+
+        This method first encoded this key in DER format using `export_der`
+        and then encodes the resulting bytes in PEM format.
+
+        Returns
+        -------
+        str
+
+        See Also
+        --------
+        export_der
+        """
         der_encoded = self.export_der()
         marker = "PUBLIC KEY"
 
         return PEM.encode(der_encoded, marker)
 
     def export_der(self):
+        """Export this key in DER format.
+
+        The ASN.1 structure of a public key is the following:
+
+            PublicKey ::= SEQUENCE {
+                publicGenerator BIT STRING
+                parameters      Parameters
+            }
+
+            Parameters := SEQUENCE {
+                extDegree       INTEGER
+                codeLength      INTEGER
+                codeDim         INTEGER
+                subspaceDim     INTEGER
+            }
+
+        Returns
+        -------
+        bytes
+        """
         parameters = [
             self._g.base_ring().degree(),
             self._g.ncols(),
@@ -114,6 +271,12 @@ class PublicKey(Key):
         return DerSequence(sequence).encode()
 
     def g(self):
+        """Returns the public code generator matrix.
+
+        Returns
+        -------
+        Matrix
+        """
         return self._g
 
     def m(self):
@@ -130,6 +293,17 @@ class PublicKey(Key):
 
 
 def generate(security_level):
+    """Generate a new secret key.
+
+    Parameters
+    ----------
+    security_level: int
+        The required security level the key must provide.
+
+    Returns
+    -------
+    SecretKey
+    """
     m, n, k, delta = _select_parameters(security_level)
 
     c = _random_gabidulin_code(m, n, k)
@@ -143,6 +317,17 @@ def generate(security_level):
 
 
 def import_secret_pem(data):
+    """Import a PEM-encoded secret key.
+
+    Parameters
+    ----------
+    data : bytes
+        The key encoded in PEM format.
+
+    Returns
+    -------
+    SecretKey
+    """
     der_encoded, marker, _ = PEM.decode(data)
 
     if marker != "PRIVATE KEY":
@@ -152,6 +337,17 @@ def import_secret_pem(data):
 
 
 def import_secret_der(data):
+    """Import a DER-encoded secret key.
+
+    Parameters
+    ----------
+    data : bytes
+        The key encoded in DER format.
+
+    Returns
+    -------
+    SecretKey
+    """
     *key, parameters = DerSequence().decode(data)
 
     key = [DerOctetString().decode(item).payload for item in key]
@@ -168,6 +364,17 @@ def import_secret_der(data):
 
 
 def import_public_pem(data):
+    """Import a PEM-encoded public key.
+
+    Parameters
+    ----------
+    data : bytes
+        The key encoded in PEM format.
+
+    Returns
+    -------
+    PublicKey
+    """
     der_encoded, marker, _ = PEM.decode(data)
 
     if marker != "PUBLIC KEY":
@@ -177,6 +384,17 @@ def import_public_pem(data):
 
 
 def import_public_der(data):
+    """Import a DER-encoded public key.
+
+    Parameters
+    ----------
+    data : bytes
+        The key encoded in DER format.
+
+    Returns
+    -------
+    PublicKey
+    """
     key, parameters = DerSequence().decode(data)
 
     key = DerBitString().decode(key).payload[1:]
@@ -193,6 +411,21 @@ def import_public_der(data):
 
 
 def _random_gabidulin_code(m, n, k):
+    """Generate a random Gabidulin code.
+
+    Parameters
+    ----------
+    m : int
+        Degree of the field extension.
+    n : int
+        Code length.
+    k : int
+        Code dimension.
+
+    Returns
+    -------
+    GabidulinCode
+    """
     field = GF(2 ** m)
     generator = random_rank_vector(VectorSpace(field, n), n)
 
@@ -200,6 +433,23 @@ def _random_gabidulin_code(m, n, k):
 
 
 def _select_parameters(security_level):
+    """Select the security parameters for key generation.
+
+    Parameters
+    ----------
+    security_level : int {128, 192, 256}
+        The required security level.
+
+    Returns
+    -------
+    Tuple[int, int, int, int]
+        The security parameters m, n, k, and delta.
+
+    Raises
+    ------
+    ValueError
+        If `security_level` is not in the available choices.
+    """
     parameters = {
         128: (64, 58, 28, 3),
         192: (96, 62, 32, 3),
